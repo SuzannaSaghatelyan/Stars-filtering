@@ -1,0 +1,1 @@
+This program parses a star database in .tsv format and filters stars based on input equatorial coordinates (RA, DEC), field of view (fov_h, fov_v), and the number of stars (N). It then generates a .csv file containing the brightest N stars sorted by their distance, with columns for the star's ID, RA, DEC, magnitude, and distance.
