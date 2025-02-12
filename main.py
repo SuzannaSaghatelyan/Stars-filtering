@@ -2,24 +2,41 @@ import csv
 from datetime import datetime
 from math import sqrt, radians, cos, sin, atan2
 
+def is_valid_ra_dec(ra, dec):
+    if not (0 <= ra <= 360):
+        return False
+    if not (-90 <= dec <= 90):
+        return False
+    return True
 
-def parse_tsv(file_path):
-    """Parse TSV file and return its data as a list of dictionaries"""
+def read_tsv_file(file_path: str) -> list[dict[str, str]]:
     with open(file_path, 'r') as tsv_file:
-        lines = tsv_file.readlines()
+        next(tsv_file)
+        rows = csv.DictReader(tsv_file, delimiter='\t')
 
-        data_lines = [line for line in lines if not line.startswith('#')]
+        stars_data = []
+        for row in rows:
+            try:
+                ra = float(row['ra_ep2000'].strip())
+                dec = float(row['dec_ep2000'].strip())
 
-        if data_lines:
-            reader = csv.DictReader(data_lines, delimiter='\t')
+                if not is_valid_ra_dec(ra, dec):
+                    continue
 
-            return [row for row in reader]
-        else:
-            raise ValueError("No valid data found in the file.")
+                star = {
+                    'source_id': row['source_id'].strip(),
+                    'ra_ep2000': ra,
+                    'dec_ep2000': dec,
+                    'brightness': float(row['phot_g_mean_mag'].strip()),
+                }
+                stars_data.append(star)
+            except (ValueError, KeyError):
+                continue
+
+        return stars_data
 
 
-def haversine_distance(ra1, dec1, ra2, dec2):
-    """Calculate angular distance between two points on a sphere using RA and DEC"""
+def calculate_haversine_distance(ra1, dec1, ra2, dec2):
     ra1, dec1, ra2, dec2 = map(radians, [ra1, dec1, ra2, dec2])
     delta_ra = ra2 - ra1
     delta_dec = dec2 - dec1
@@ -28,7 +45,6 @@ def haversine_distance(ra1, dec1, ra2, dec2):
     return c
 
 def quick_sort(arr, key_func):
-    """Implement quick sort algorithm"""
     if len(arr) <= 1:
         return arr
     pivot = arr[len(arr) // 2]
@@ -38,8 +54,8 @@ def quick_sort(arr, key_func):
     right = [x for x in arr if key_func(x) > pivot_key]
     return quick_sort(left, key_func) + middle + quick_sort(right, key_func)
 
-def filter_stars(data, ra, dec, fov_h, fov_v):
-    """Filter stars within the fov defined by ra, dec, fov_h, and fov_v"""
+
+def filter_stars_in_fov(data, ra, dec, fov_h, fov_v):
     filtered = []
     for star in data:
         try:
@@ -51,21 +67,30 @@ def filter_stars(data, ra, dec, fov_h, fov_v):
             continue
     return filtered
 
-def find_brightest_stars(stars, ra, dec, n):
-    """Find the n brightest stars sorted by distance from the given point"""
+def filter_stars_by_distance(stars, ra, dec):
     for star in stars:
         try:
-            star['magnitude'] = float(star['phot_g_mean_mag'])
-            star['distance'] = haversine_distance(ra, dec, float(star['ra_ep2000']), float(star['dec_ep2000']))
+            star['distance'] = calculate_haversine_distance(ra, dec, float(star['ra_ep2000']), float(star['dec_ep2000']))
         except ValueError:
-            star['magnitude'] = float('inf')
             star['distance'] = float('inf')
 
-    stars = quick_sort(stars, key_func=lambda x: (x['distance'], x['magnitude']))
-    return stars[:n]
+    stars = quick_sort(stars, key_func=lambda x: x['distance'])
+    return stars
 
-def save_to_csv(stars, output_file):
-    """Save the stars to CSV file"""
+
+def sort_stars_by_brightness(stars):
+    for star in stars:
+        try:
+            star['magnitude'] = float(star['brightness'])
+        except ValueError:
+            star['magnitude'] = float('inf')
+
+    stars = quick_sort(stars, key_func=lambda x: x['magnitude'])
+    return stars
+
+def save_to_csv(stars):
+    output_file = datetime.now().strftime("%Y%m%d_%H%M%S.csv")
+
     with open(output_file, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(["ID", "RA", "DEC", "Brightness(Magnitude)", "Distance"])
@@ -78,21 +103,34 @@ def save_to_csv(stars, output_file):
                 star['distance']
             ])
 
+def get_valid_input(prompt, min_value, max_value):
+    while True:
+        try:
+            value = float(input(prompt))
+            if min_value <= value <= max_value:
+                return value
+            else:
+                print(f"Input out of range. Please enter a value between {min_value} and {max_value}")
+        except ValueError:
+            print("Invalid input.")
+
 def main():
-    ra = float(input("Enter RA "))
-    dec = float(input("Enter DEC "))
+    ra = get_valid_input("Enter RA (0-360) ", 0, 360)
+    dec = get_valid_input("Enter DEC (-90 to 90) ", -90, 90)
     fov_h = float(input("Enter FOV horizontal "))
     fov_v = float(input("Enter FOV vertical "))
-    n = int(input("Enter number of stars "))
+    n = int(input("Enter number of stars to find: "))
 
-    data = parse_tsv("data/stars_small.tsv")
+    data = read_tsv_file("data/stars_small.tsv")
 
-    filtered_stars = filter_stars(data, ra, dec, fov_h, fov_v)
+    filtered_stars = filter_stars_in_fov(data, ra, dec, fov_h, fov_v)
 
-    brightest_stars = find_brightest_stars(filtered_stars, ra, dec, n)
+    stars_by_distance = filter_stars_by_distance(filtered_stars, ra, dec)
 
-    output_file = datetime.now().strftime("%Y%m%d_%H%M%S.csv")
-    save_to_csv(brightest_stars, output_file)
+    brightest_stars = sort_stars_by_brightness(stars_by_distance)
+
+    brightest_stars = brightest_stars[:n]
+    save_to_csv(brightest_stars)
 
 if __name__ == "__main__":
     main()
